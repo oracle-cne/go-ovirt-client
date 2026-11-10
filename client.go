@@ -124,7 +124,6 @@ func (o *oVirtClient) reconnect(onlyIfDue bool, policies ...ReconnectPolicy) (bo
 	o.reconnectLock.Lock()
 	defer o.reconnectLock.Unlock()
 	if onlyIfDue {
-		o.logger.Debugf("Checking reconnect deadline under the reconnect lock: interval=%s lifetime-percentage=%d", policy.Interval, policy.LifetimePercentage)
 		if o.conn == nil {
 			return false, newError(EBug, "scheduled reconnect requires an initialized SDK connection")
 		}
@@ -134,7 +133,6 @@ func (o *oVirtClient) reconnect(onlyIfDue bool, policies ...ReconnectPolicy) (bo
 			return false, err
 		}
 		if !due {
-			o.logger.Debugf("Reconnect is not due; using the active connection")
 			return false, nil
 		}
 	}
