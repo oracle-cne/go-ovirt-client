@@ -3,7 +3,7 @@ package ovirtclient
 import (
 	"strings"
 
-	ovirtsdk4 "github.com/ovirt/go-ovirt/v4"
+	ovirtsdk4 "github.com/ovirt/go-ovirt"
 )
 
 // DiskAttachmentID is the identifier for the disk attachment.

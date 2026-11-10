@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	ovirtsdk "github.com/ovirt/go-ovirt/v4"
+	ovirtsdk "github.com/ovirt/go-ovirt"
 )
 
 func (o *oVirtClient) CreateTemplate(

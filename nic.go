@@ -1,7 +1,7 @@
 package ovirtclient
 
 import (
-	ovirtsdk "github.com/ovirt/go-ovirt/v4"
+	ovirtsdk "github.com/ovirt/go-ovirt"
 )
 
 // NICID is the ID for a network interface.

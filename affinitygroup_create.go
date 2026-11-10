@@ -3,7 +3,7 @@ package ovirtclient
 import (
 	"fmt"
 
-	ovirtsdk4 "github.com/ovirt/go-ovirt/v4"
+	ovirtsdk4 "github.com/ovirt/go-ovirt"
 )
 
 func (o *oVirtClient) CreateAffinityGroup(

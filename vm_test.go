@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	ovirtclient "github.com/ovirt/go-ovirt-client/v3"
+	ovirtclient "github.com/ovirt/go-ovirt-client/v2"
 )
 
 func TestVMListShouldNotFail(t *testing.T) {
@@ -66,7 +66,7 @@ func TestAfterVMCreationShouldBePresent(t *testing.T) {
 	}
 
 	updatedVM, err := fetchedVM.Update(
-		ovirtclient.UpdateVMParams().MustWithName("new_name").MustWithComment("new comment").MustWithDescription("new description"),
+		ovirtclient.UpdateVMParams().MustWithName("new_name").MustWithComment("new comment"),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -79,9 +79,6 @@ func TestAfterVMCreationShouldBePresent(t *testing.T) {
 	}
 	if updatedVM.Comment() != "new comment" {
 		t.Fatalf("updated VM comment %s does not match update parameters", updatedVM.Comment())
-	}
-	if updatedVM.Description() != "new description" {
-		t.Fatalf("updated VM description %s does not match update parameters", updatedVM.Description())
 	}
 
 	fetchedVM, err = client.GetVM(vm.ID())
@@ -97,9 +94,6 @@ func TestAfterVMCreationShouldBePresent(t *testing.T) {
 	if fetchedVM.Comment() != "new comment" {
 		t.Fatalf("updated VM comment %s does not match update parameters", fetchedVM.Comment())
 	}
-	if fetchedVM.Description() != "new description" {
-		t.Fatalf("updated VM description %s does not match update parameters", fetchedVM.Description())
-	}
 }
 
 func TestVMCreationWithCPU(t *testing.T) {
@@ -110,7 +104,6 @@ func TestVMCreationWithCPU(t *testing.T) {
 	}
 	for name, param := range params {
 		t.Run(name, func(t *testing.T) {
-			param := param
 			t.Parallel()
 			helper := getHelper(t)
 			vm := assertCanCreateVM(
@@ -210,107 +203,9 @@ func TestVMCreationFromTemplateChangedCPUValues(t *testing.T) {
 	}
 }
 
-func assertNIC(t *testing.T, nic, shouldBe ovirtclient.NicConfiguration) {
-	if nic == nil {
-		t.Fatalf(
-			"got Unexpected output from the NicConfiguration (%s) init field ",
-			nic,
-		)
-	}
-
-	if nic.Name() != shouldBe.Name() {
-		t.Fatalf(
-			"got Unexpected output from the NicConfiguration.Name (%s) init field ",
-			nic.Name(),
-		)
-	}
-
-	if nic.IP().Address != shouldBe.IP().Address {
-		t.Fatalf(
-			"got Unexpected output from the NicConfiguration.IP.Address (%s) init field ",
-			nic.IP().Address,
-		)
-	}
-	if nic.IP().Gateway != shouldBe.IP().Gateway {
-		t.Fatalf(
-			"got Unexpected output from the NicConfiguration.IP.Gateway (%s) init field ",
-			nic.IP().Gateway,
-		)
-	}
-	if nic.IP().Netmask != shouldBe.IP().Netmask {
-		t.Fatalf(
-			"got Unexpected output from the NicConfiguration.IP.Netmask (%s) init field ",
-			nic.IP().Netmask,
-		)
-	}
-
-	if shouldBe.IPV6() != nil {
-		if nic.IPV6().Address != shouldBe.IPV6().Address {
-			t.Fatalf(
-				"got Unexpected output from the NicConfiguration.IPV6.Address (%s) init field ",
-				nic.IPV6().Address,
-			)
-		}
-		if nic.IPV6().Gateway != shouldBe.IPV6().Gateway {
-			t.Fatalf(
-				"got Unexpected output from the NicConfiguration.IPV6.Gateway (%s) init field ",
-				nic.IPV6().Gateway,
-			)
-		}
-		if nic.IPV6().Netmask != shouldBe.IPV6().Netmask {
-			t.Fatalf(
-				"got Unexpected output from the NicConfiguration.IPV6.Netmask (%s) init field ",
-				nic.IPV6().Netmask,
-			)
-		}
-
-	}
-}
-
-func TestVMCreationWithInit(t *testing.T) { //nolint:funlen
+func TestVMCreationWithInit(t *testing.T) {
 	t.Parallel()
 	helper := getHelper(t)
-
-	testCases := []struct {
-		name             string
-		customScript     string
-		hostName         string
-		nicConfiguration ovirtclient.NicConfiguration
-	}{
-		{
-			"only custom script and hostname",
-			"script-test",
-			"test-vm",
-			nil,
-		},
-		{
-			"with ipv4 nic configuration",
-			"script-test",
-			"test-vm",
-			ovirtclient.NewNicConfiguration("custom-nic", ovirtclient.IP{
-				Version: ovirtclient.IPVERSION_V4,
-				Address: "192.168.178.15",
-				Gateway: "192.168.19.1",
-				Netmask: "255.255.255.0",
-			})},
-		{
-			"with ipv6 nic configuration",
-			"script-test",
-			"test-vm",
-			ovirtclient.NewNicConfiguration("custom-nic", ovirtclient.IP{
-				Version: ovirtclient.IPVERSION_V4,
-				Address: "192.168.178.15",
-				Gateway: "192.168.19.1",
-				Netmask: "255.255.255.0",
-			}).WithIPV6(ovirtclient.IP{
-				Version: ovirtclient.IPVERSION_V6,
-				Address: "fe80::bfb6:1c6c:f541:1aa564",
-				Gateway: "fe80::",
-				Netmask: "64",
-			}),
-		},
-	}
-
 	vm1 := assertCanCreateVM(
 		t,
 		helper,
@@ -318,57 +213,21 @@ func TestVMCreationWithInit(t *testing.T) { //nolint:funlen
 		ovirtclient.CreateVMParams(),
 	)
 	tpl := assertCanCreateTemplate(t, helper, vm1)
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			init := ovirtclient.NewInitialization(testCase.customScript, testCase.hostName)
-			if testCase.nicConfiguration != nil {
-				init = init.WithNicConfiguration(testCase.nicConfiguration)
-			}
-
-			vm2 := assertCanCreateVMFromTemplate(
-				t,
-				helper,
-				fmt.Sprintf("test-%s", helper.GenerateRandomID(5)),
-				tpl.ID(),
-				ovirtclient.CreateVMParams().MustWithInitialization(init),
-			)
-
-			if vm2.Initialization().CustomScript() != testCase.customScript {
-				t.Fatalf("got Unexpected output from the CustomScript (%s) init field ", vm2.Initialization().CustomScript())
-			}
-
-			if vm2.Initialization().HostName() != testCase.hostName {
-				t.Fatalf("got Unexpected output from the HostName (%s) init field ", vm2.Initialization().HostName())
-			}
-
-			if testCase.nicConfiguration != nil {
-				nic := vm2.Initialization().NicConfiguration()
-				assertNIC(t, nic, testCase.nicConfiguration)
-			}
-
-		},
-		)
-	}
-
-}
-
-func TestVMCreationWithDescription(t *testing.T) {
-	t.Parallel()
-	testDescription := "test description"
-	helper := getHelper(t)
-	vm := assertCanCreateVM(
+	vm2 := assertCanCreateVMFromTemplate(
 		t,
 		helper,
 		fmt.Sprintf("test-%s", helper.GenerateRandomID(5)),
-		ovirtclient.CreateVMParams().MustWithDescription(testDescription),
+		tpl.ID(),
+		ovirtclient.CreateVMParams().MustWithInitializationParameters("script-test", "test-vm"),
 	)
 
-	description := vm.Description()
-	if description != testDescription {
-		t.Fatalf("Creating a VM with Description settings did not return a VM with expected Description , %s , %s.", description, testDescription)
+	if vm2.Initialization().CustomScript() != "script-test" {
+		t.Fatalf("got Unexpected output from the CustomScript (%s) init field ", vm2.Initialization().CustomScript())
 	}
 
+	if vm2.Initialization().HostName() != "test-vm" {
+		t.Fatalf("got Unexpected output from the HostName (%s) init field ", vm2.Initialization().HostName())
+	}
 }
 
 // TestVMStartStop creates a micro VM with a tiny operating system, starts it and then stops it. The OS doesn't support
@@ -744,7 +603,7 @@ func checkVMDiskSparseness(t *testing.T, checkVM ovirtclient.VM, sparse bool, me
 		t.Fatalf("Failed to fetch disk for VM %s (%v).", checkVM.ID(), err)
 	}
 	if d.Sparse() != sparse {
-		t.Fatal(message)
+		t.Fatalf(message)
 	}
 }
 

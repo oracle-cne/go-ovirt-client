@@ -5,7 +5,7 @@ import (
 	"net"
 	"regexp"
 
-	ovirtsdk "github.com/ovirt/go-ovirt/v4"
+	ovirtsdk "github.com/ovirt/go-ovirt"
 )
 
 func (m *mockClient) GetVMIPAddresses(id VMID, params VMIPSearchParams, _ ...RetryStrategy) (map[string][]net.IP, error) {
@@ -145,7 +145,7 @@ func excludeInterface(
 	}
 	includedByName := isInIncludedInterfaceNames(includedInterfaceNames, interf)
 	includedByPattern := isInIncludedInterfacePatterns(includedInterfacePatterns, interf)
-	return (len(includedInterfaceNames) != 0 || len(includedInterfacePatterns) != 0) && !includedByName && !includedByPattern
+	return !((len(includedInterfaceNames) == 0 && len(includedInterfacePatterns) == 0) || includedByName || includedByPattern)
 }
 
 func isInIncludedInterfacePatterns(patterns []*regexp.Regexp, interf string) bool {

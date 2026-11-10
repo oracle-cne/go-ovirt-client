@@ -8,7 +8,7 @@ import (
 	"io"
 	"testing"
 
-	ovirtclient "github.com/ovirt/go-ovirt-client/v3"
+	ovirtclient "github.com/ovirt/go-ovirt-client/v2"
 )
 
 func TestImageDownload(t *testing.T) {

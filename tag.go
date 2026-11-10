@@ -1,7 +1,7 @@
 package ovirtclient
 
 import (
-	ovirtsdk4 "github.com/ovirt/go-ovirt/v4"
+	ovirtsdk4 "github.com/ovirt/go-ovirt"
 )
 
 //go:generate go run scripts/rest/rest.go -i "Tag" -n "tag" -T TagID

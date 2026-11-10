@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	ovirtsdk "github.com/ovirt/go-ovirt/v4"
+	ovirtsdk "github.com/ovirt/go-ovirt"
 )
 
 // VMID is a specific type for virtual machine IDs.
@@ -206,8 +206,6 @@ type VMData interface {
 	Name() string
 	// Comment is the comment added to the VM.
 	Comment() string
-	// Description is the description added to the VM.
-	Description() string
 	// ClusterID returns the cluster this machine belongs to.
 	ClusterID() ClusterID
 	// TemplateID returns the ID of the base template for this machine.
@@ -373,7 +371,6 @@ func VMHugePagesValues() VMHugePagesList {
 type Initialization interface {
 	CustomScript() string
 	HostName() string
-	NicConfiguration() NicConfiguration
 }
 
 // BuildableInitialization is a buildable version of Initialization.
@@ -381,25 +378,21 @@ type BuildableInitialization interface {
 	Initialization
 	WithCustomScript(customScript string) BuildableInitialization
 	WithHostname(hostname string) BuildableInitialization
-	WithNicConfiguration(nic NicConfiguration) BuildableInitialization
 }
 
 // initialization defines to the virtual machine’s initialization configuration.
 // customScript - Cloud-init script which will be executed on Virtual Machine when deployed.
 // hostname - Hostname to be set to Virtual Machine when deployed.
-// nicConfiguration - Optional. The nic configuration used on boot time.
 type initialization struct {
-	customScript     string
-	hostname         string
-	nicConfiguration NicConfiguration
+	customScript string
+	hostname     string
 }
 
 // NewInitialization creates a new Initialization from the specified parameters.
-func NewInitialization(customScript, hostname string) BuildableInitialization {
+func NewInitialization(customScript, hostname string) Initialization {
 	return &initialization{
-		customScript:     customScript,
-		hostname:         hostname,
-		nicConfiguration: nil,
+		customScript: customScript,
+		hostname:     hostname,
 	}
 }
 
@@ -411,10 +404,6 @@ func (i *initialization) HostName() string {
 	return i.hostname
 }
 
-func (i *initialization) NicConfiguration() NicConfiguration {
-	return i.nicConfiguration
-}
-
 func (i *initialization) WithCustomScript(customScript string) BuildableInitialization {
 	i.customScript = customScript
 	return i
@@ -422,91 +411,6 @@ func (i *initialization) WithCustomScript(customScript string) BuildableInitiali
 
 func (i *initialization) WithHostname(hostname string) BuildableInitialization {
 	i.hostname = hostname
-	return i
-}
-
-func (i *initialization) WithNicConfiguration(nic NicConfiguration) BuildableInitialization {
-	i.nicConfiguration = nic
-	return i
-}
-
-type IpVersion string
-
-const (
-	IPVERSION_V4 IpVersion = "v4"
-	IPVERSION_V6 IpVersion = "v6"
-)
-
-// Ip Represents the IP configuration of a network interface.
-type IP struct {
-	Address string
-	Gateway string
-	Netmask string
-	Version IpVersion
-}
-
-func (ip IP) IsIPv4() bool {
-	return ip.Version == IPVERSION_V4
-}
-
-func (ip IP) IsIPv6() bool {
-	return ip.Version == IPVERSION_V6
-}
-
-// NicConfiguration defines a virtual machine’s initialization nic configuration.
-type NicConfiguration interface {
-	Name() string
-	IP() IP
-	IPV6() *IP
-}
-
-// BuildableNicConfiguration is a buildable version of NicConfiguration.
-type BuildableNicConfiguration interface {
-	NicConfiguration
-	WithName(name string) BuildableNicConfiguration
-	WithIP(ip IP) BuildableNicConfiguration
-	WithIPV6(ip IP) BuildableNicConfiguration
-}
-
-type nicConfiguration struct {
-	name string
-	ip   IP
-	ipv6 *IP
-}
-
-// NewNicConfiguration creates a new NicConfiguration from the specified parameters.
-func NewNicConfiguration(name string, ip IP) BuildableNicConfiguration {
-	return &nicConfiguration{
-		name: name,
-		ip:   ip,
-		ipv6: nil,
-	}
-}
-
-func (i *nicConfiguration) Name() string {
-	return i.name
-}
-
-func (i *nicConfiguration) IP() IP {
-	return i.ip
-}
-
-func (i *nicConfiguration) IPV6() *IP {
-	return i.ipv6
-}
-
-func (i *nicConfiguration) WithName(name string) BuildableNicConfiguration {
-	i.name = name
-	return i
-}
-
-func (i *nicConfiguration) WithIP(ip IP) BuildableNicConfiguration {
-	i.ip = ip
-	return i
-}
-
-func (i *nicConfiguration) WithIPV6(ip IP) BuildableNicConfiguration {
-	i.ipv6 = &ip
 	return i
 }
 
@@ -528,50 +432,7 @@ func convertSDKInitialization(sdkObject *ovirtsdk.Vm) (*initialization, error) {
 	if ok {
 		init.hostname = hostname
 	}
-	nicConfigs, ok := initializationSDK.NicConfigurations()
-	if ok && len(nicConfigs.Slice()) >= 1 {
-		init.nicConfiguration = convertSDKNicConfiguration(nicConfigs.Slice()[0])
-	}
 	return &init, nil
-}
-
-func convertSDKNicConfiguration(sdkObject *ovirtsdk.NicConfiguration) NicConfiguration {
-	name, _ := sdkObject.Name()
-	nicConfiguration := NewNicConfiguration(name, IP{})
-
-	// It is fine for these values to be empty strings to account for shutdown VMs where these values are not set.
-	ipv4, hasIPv4 := sdkObject.Ip()
-	if hasIPv4 {
-		address, _ := ipv4.Address()
-		gateway, _ := ipv4.Gateway()
-		netmask, _ := ipv4.Netmask()
-		nicConfiguration = nicConfiguration.WithIP(IP{
-			Address: address,
-			Gateway: gateway,
-			Netmask: netmask,
-			Version: IPVERSION_V4,
-		})
-	}
-
-	ipv6, hasIPv6 := sdkObject.Ipv6()
-	if hasIPv6 {
-		// SdkObject can be like this:
-		// {ipv6{addres: nil, gateway: nil, netmask: nil, version: nil},}
-		address, _ := ipv6.Address()
-		gateway, _ := ipv6.Gateway()
-		netmask, _ := ipv6.Netmask()
-		nicConfiguration = nicConfiguration.WithIPV6(IP{
-			Address: address,
-			Gateway: gateway,
-			Netmask: netmask,
-			Version: IPVERSION_V6,
-		})
-	}
-
-	if !hasIPv4 && !hasIPv6 {
-		return nil
-	}
-	return nicConfiguration
 }
 
 // VM is the implementation of the virtual machine in oVirt.
@@ -800,9 +661,6 @@ type OptionalVMParameters interface {
 	// Comment returns the comment for the VM.
 	Comment() string
 
-	// Description returns the description for the VM.
-	Description() string
-
 	// CPU contains the CPU topology, if any.
 	CPU() VMCPUParams
 
@@ -853,11 +711,6 @@ type BuildableVMParameters interface {
 	WithComment(comment string) (BuildableVMParameters, error)
 	// MustWithComment is identical to WithComment, but panics instead of returning an error.
 	MustWithComment(comment string) BuildableVMParameters
-
-	// WithDescriptiont adds a common to the VM.
-	WithDescription(description string) (BuildableVMParameters, error)
-	// MustWithDescription is identical to WithDescription, but panics instead of returning an error.
-	MustWithDescription(descriptiont string) BuildableVMParameters
 
 	// WithCPU adds a VMCPUTopo to the VM.
 	WithCPU(cpu VMCPUParams) (BuildableVMParameters, error)
@@ -1521,48 +1374,8 @@ func (v *vmDiskParameters) MustWithSparse(sparse bool) BuildableVMDiskParameters
 type UpdateVMParameters interface {
 	// Name returns the name for the VM. Return nil if the name should not be changed.
 	Name() *string
-
 	// Comment returns the comment for the VM. Return nil if the name should not be changed.
 	Comment() *string
-
-	// Description returns the description for the VM. Return nil if the name should not be changed.
-	Description() *string
-
-	// CPU contains the CPU topology, if any. Return nil if the name should not be changed.
-	CPU() *VMCPUParams
-
-	// HugePages returns the optional value for the HugePages setting for VMs. Return nil if the name should not be changed.
-	HugePages() *VMHugePages
-
-	// Initialization defines the virtual machine’s initialization configuration. Return nil if the name should not be changed.
-	Initialization() *Initialization
-
-	// Memory returns the VM memory in Bytes. Return nil if the name should not be changed.
-	Memory() *int64
-
-	// MemoryPolicy returns the memory policy configuration for this VM, if any. Return nil if the name should not be changed.
-	MemoryPolicy() *MemoryPolicyParameters
-
-	// Disks returns a list of disks that are to be changed from the template. Return nil if the name should not be changed.
-	Disks() *[]OptionalVMDiskParameters
-
-	// PlacementPolicy returns a VM placement policy to apply, if any. Return nil if the name should not be changed.
-	PlacementPolicy() *VMPlacementPolicyParameters
-
-	// InstanceTypeID returns the instance type ID if set. Return nil if the name should not be changed.
-	InstanceTypeID() *InstanceTypeID
-
-	// VMType is the type of the VM created. Return nil if the name should not be changed.
-	VMType() *VMType
-
-	// OS returns the operating system parameters, and true if the OS parameter has been set. Return nil if the name should not be changed.
-	OS() (*VMOSParameters, bool)
-
-	// SerialConsole returns if a serial console should be created or not. Return nil if the name should not be changed.
-	SerialConsole() *bool
-
-	// SoundcardEnabled returns if a soundcard should be created or not. Return nil if the name should not be changed.
-	SoundcardEnabled() *bool
 }
 
 // VMCPUTopo contains the CPU topology information about a VM.
@@ -1646,84 +1459,6 @@ type BuildableUpdateVMParameters interface {
 
 	// MustWithComment is identical to WithComment, but panics instead of returning an error.
 	MustWithComment(comment string) BuildableUpdateVMParameters
-
-	// WithDescription adds a description to the request
-	WithDescription(description string) (BuildableUpdateVMParameters, error)
-
-	// MustWithDescription is identical to WithDescription, but panics instead of returning an error.
-	MustWithDescription(description string) BuildableUpdateVMParameters
-
-	// WithCPU adds an updated CPU topology to the request.
-	WithCPU(cpu VMCPUParams) (BuildableUpdateVMParameters, error)
-
-	// MustWithCPU is identical to WithCPU, but panics instead of returning an error.
-	MustWithCPU(cpu VMCPUParams) BuildableUpdateVMParameters
-
-	// WithHugePages adds an updated huge pages configuration to the request.
-	WithHugePages(hugePages VMHugePages) (BuildableUpdateVMParameters, error)
-
-	// MustWithHugePages is identical to WithHugePages, but panics instead of returning an error.
-	MustWithHugePages(hugePages VMHugePages) BuildableUpdateVMParameters
-
-	// WithInitialization adds an updated initialization configuration to the request.
-	WithInitialization(initialization Initialization) (BuildableUpdateVMParameters, error)
-
-	// MustWithInitialization is identical to WithInitialization, but panics instead of returning an error.
-	MustWithInitialization(initialization Initialization) BuildableUpdateVMParameters
-
-	// WithMemory adds an updated memory configuration to the request.
-	WithMemory(memory int64) (BuildableUpdateVMParameters, error)
-
-	// MustWithMemory is identical to WithMemory, but panics instead of returning an error.
-	MustWithMemory(memory int64) BuildableUpdateVMParameters
-
-	// WithMemoryPolicy adds an updated memory policy configuration to the request.
-	WithMemoryPolicy(memory MemoryPolicyParameters) (BuildableUpdateVMParameters, error)
-
-	// MustWithMemoryPolicy is identical to WithMemoryPolicy, but panics instead of returning an error.
-	MustWithMemoryPolicy(memory MemoryPolicyParameters) BuildableUpdateVMParameters
-
-	// WithDisks adds updated disk configurations to the request to manipulate the disks inherited from templates.
-	WithDisks(disks []OptionalVMDiskParameters) (BuildableUpdateVMParameters, error)
-
-	// MustWithDisks is identical to WithDisks, but panics instead of returning an error.
-	MustWithDisks(disks []OptionalVMDiskParameters) BuildableUpdateVMParameters
-
-	// WithPlacementPolicy adds an updated placement policy configuration to the request.
-	WithPlacementPolicy(placementPolicy VMPlacementPolicyParameters) (BuildableUpdateVMParameters, error)
-
-	// MustWithPlacementPolicy is identical to WithPlacementPolicy, but panics instead of returning an error.
-	MustWithPlacementPolicy(placementPolicy VMPlacementPolicyParameters) BuildableUpdateVMParameters
-
-	// WithInstanceTypeID adds an updated instance type ID to the request.
-	WithInstanceTypeID(instanceTypeID InstanceTypeID) (BuildableUpdateVMParameters, error)
-
-	// MustWithInstanceTypeID is identical to WithInstanceTypeID, but panics instead of returning an error.
-	MustWithInstanceTypeID(instanceTypeID InstanceTypeID) BuildableUpdateVMParameters
-
-	// WithVMType adds an updated VM type to the request.
-	WithVMType(vmType VMType) (BuildableUpdateVMParameters, error)
-
-	// MustWithVMType is identical to WithVMType, but panics instead of returning an error.
-	MustWithVMType(vmType VMType) BuildableUpdateVMParameters
-
-	// WithOS adds updated operating system parameters to the request.
-	WithOS(parameters VMOSParameters) (BuildableUpdateVMParameters, error)
-
-	// MustWithOS is identical to WithOS, but panics instead of returning an error.
-	MustWithOS(parameters VMOSParameters) BuildableUpdateVMParameters
-
-	// WithSerialConsole adds an updated serial console configuration to the request.
-	WithSerialConsole(serialConsole bool) (BuildableUpdateVMParameters, error)
-
-	// MustWithSerialConsole is identical to WithSerialConsole, but panics instead of returning an error.
-	MustWithSerialConsole(serialConsole bool) BuildableUpdateVMParameters
-
-	// WithSoundcardEnabled adds an updated soundcard configuration to the request.
-	WithSoundcardEnabled(soundcardEnabled bool) (BuildableUpdateVMParameters, error)
-
-	// MustWithSoundcardEnabled is identical to WithSoundcardEnabled, but panics instead of returning an error.
-	MustWithSoundcardEnabled(soundcardEnabled bool) BuildableUpdateVMParameters
 }
 
 // UpdateVMParams returns a buildable set of update parameters.
@@ -1732,30 +1467,8 @@ func UpdateVMParams() BuildableUpdateVMParameters {
 }
 
 type updateVMParams struct {
-	name        *string
-	comment     *string
-	description *string
-	cpu         *VMCPUParams
-
-	hugePages *VMHugePages
-
-	initialization *Initialization
-	memory         *int64
-	memoryPolicy   *MemoryPolicyParameters
-
-	disks *[]OptionalVMDiskParameters
-
-	placementPolicy *VMPlacementPolicyParameters
-
-	instanceTypeID *InstanceTypeID
-
-	vmType *VMType
-
-	os    *VMOSParameters
-	osSet bool
-
-	serialConsole    *bool
-	soundcardEnabled *bool
+	name    *string
+	comment *string
 }
 
 func (u *updateVMParams) MustWithName(name string) BuildableUpdateVMParameters {
@@ -1774,176 +1487,12 @@ func (u *updateVMParams) MustWithComment(comment string) BuildableUpdateVMParame
 	return builder
 }
 
-func (u *updateVMParams) MustWithDescription(description string) BuildableUpdateVMParameters {
-	builder, err := u.WithDescription(description)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithCPU(cpu VMCPUParams) BuildableUpdateVMParameters {
-	builder, err := u.WithCPU(cpu)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithCPUParameters(cores uint, threads uint, sockets uint) BuildableUpdateVMParameters {
-	builder, err := u.WithCPUParameters(cores, threads, sockets)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithHugePages(hugePages VMHugePages) BuildableUpdateVMParameters {
-	builder, err := u.WithHugePages(hugePages)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithInitialization(initialization Initialization) BuildableUpdateVMParameters {
-	builder, err := u.WithInitialization(initialization)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithMemory(memory int64) BuildableUpdateVMParameters {
-	builder, err := u.WithMemory(memory)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithMemoryPolicy(memory MemoryPolicyParameters) BuildableUpdateVMParameters {
-	builder, err := u.WithMemoryPolicy(memory)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithDisks(disks []OptionalVMDiskParameters) BuildableUpdateVMParameters {
-	builder, err := u.WithDisks(disks)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithPlacementPolicy(placementPolicy VMPlacementPolicyParameters) BuildableUpdateVMParameters {
-	builder, err := u.WithPlacementPolicy(placementPolicy)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithInstanceTypeID(instanceTypeID InstanceTypeID) BuildableUpdateVMParameters {
-	builder, err := u.WithInstanceTypeID(instanceTypeID)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithVMType(vmType VMType) BuildableUpdateVMParameters {
-	builder, err := u.WithVMType(vmType)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithOS(parameters VMOSParameters) BuildableUpdateVMParameters {
-	builder, err := u.WithOS(parameters)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithSerialConsole(serialConsole bool) BuildableUpdateVMParameters {
-	builder, err := u.WithSerialConsole(serialConsole)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
-func (u *updateVMParams) MustWithSoundcardEnabled(soundcardEnabled bool) BuildableUpdateVMParameters {
-	builder, err := u.WithSoundcardEnabled(soundcardEnabled)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
-
 func (u *updateVMParams) Name() *string {
 	return u.name
 }
 
 func (u *updateVMParams) Comment() *string {
 	return u.comment
-}
-
-func (u *updateVMParams) Description() *string {
-	return u.description
-}
-
-func (u *updateVMParams) CPU() *VMCPUParams {
-	return u.cpu
-}
-
-func (u *updateVMParams) HugePages() *VMHugePages {
-	return u.hugePages
-}
-
-func (u *updateVMParams) Initialization() *Initialization {
-	return u.initialization
-}
-
-func (u *updateVMParams) Memory() *int64 {
-	return u.memory
-}
-
-func (u *updateVMParams) MemoryPolicy() *MemoryPolicyParameters {
-	return u.memoryPolicy
-}
-
-func (u *updateVMParams) Disks() *[]OptionalVMDiskParameters {
-	return u.disks
-}
-
-func (u *updateVMParams) PlacementPolicy() *VMPlacementPolicyParameters {
-	return u.placementPolicy
-}
-
-func (u *updateVMParams) InstanceTypeID() *InstanceTypeID {
-	return u.instanceTypeID
-}
-
-func (u *updateVMParams) VMType() *VMType {
-	return u.vmType
-}
-
-func (u *updateVMParams) OS() (*VMOSParameters, bool) {
-	return u.os, u.osSet
-}
-
-func (u *updateVMParams) SerialConsole() *bool {
-	return u.serialConsole
-}
-
-func (u *updateVMParams) SoundcardEnabled() *bool {
-	return u.soundcardEnabled
 }
 
 func (u *updateVMParams) WithName(name string) (BuildableUpdateVMParameters, error) {
@@ -1956,114 +1505,6 @@ func (u *updateVMParams) WithName(name string) (BuildableUpdateVMParameters, err
 
 func (u *updateVMParams) WithComment(comment string) (BuildableUpdateVMParameters, error) {
 	u.comment = &comment
-	return u, nil
-}
-
-func (u *updateVMParams) WithDescription(description string) (BuildableUpdateVMParameters, error) {
-	u.description = &description
-	return u, nil
-}
-
-func (u *updateVMParams) WithCPU(cpu VMCPUParams) (BuildableUpdateVMParameters, error) {
-	u.cpu = &cpu
-	return u, nil
-}
-
-func (u *updateVMParams) WithCPUParameters(cores uint, threads uint, sockets uint) (BuildableUpdateVMParameters, error) {
-	params := NewVMCPUTopoParams()
-	params, err := params.WithCores(cores)
-	if err != nil {
-		return nil, err
-	}
-	params, err = params.WithThreads(threads)
-	if err != nil {
-		return nil, err
-	}
-	params, err = params.WithSockets(sockets)
-	if err != nil {
-		return nil, err
-	}
-
-	topo, err := NewVMCPUParams().WithTopo(params)
-	if err != nil {
-		return nil, err
-	}
-
-	return u.WithCPU(topo)
-}
-
-func (u *updateVMParams) WithHugePages(hugePages VMHugePages) (BuildableUpdateVMParameters, error) {
-	if err := hugePages.Validate(); err != nil {
-		return nil, err
-	}
-	u.hugePages = &hugePages
-	return u, nil
-}
-
-func (u *updateVMParams) WithInitialization(initialization Initialization) (BuildableUpdateVMParameters, error) {
-	u.initialization = &initialization
-	return u, nil
-}
-
-func (u *updateVMParams) WithMemory(memory int64) (BuildableUpdateVMParameters, error) {
-	u.memory = &memory
-	return u, nil
-}
-
-func (u *updateVMParams) WithMemoryPolicy(memory MemoryPolicyParameters) (BuildableUpdateVMParameters, error) {
-	u.memoryPolicy = &memory
-	return u, nil
-}
-
-func (u *updateVMParams) WithDisks(disks []OptionalVMDiskParameters) (BuildableUpdateVMParameters, error) {
-	diskIDs := map[DiskID]int{}
-	for i, d := range disks {
-		if previousID, ok := diskIDs[d.DiskID()]; ok {
-			return nil, newError(
-				EBadArgument,
-				"Disk %s appears twice, in position %d and %d.",
-				d.DiskID(),
-				previousID,
-				i,
-			)
-		}
-		diskIDs[d.DiskID()] = i
-	}
-	u.disks = &disks
-	return u, nil
-}
-
-func (u *updateVMParams) WithPlacementPolicy(placementPolicy VMPlacementPolicyParameters) (BuildableUpdateVMParameters, error) {
-	u.placementPolicy = &placementPolicy
-	return u, nil
-}
-
-func (u *updateVMParams) WithInstanceTypeID(instanceTypeID InstanceTypeID) (BuildableUpdateVMParameters, error) {
-	u.instanceTypeID = &instanceTypeID
-	return u, nil
-}
-
-func (u *updateVMParams) WithVMType(vmType VMType) (BuildableUpdateVMParameters, error) {
-	if err := vmType.Validate(); err != nil {
-		return nil, err
-	}
-	u.vmType = &vmType
-	return u, nil
-}
-
-func (u *updateVMParams) WithOS(os VMOSParameters) (BuildableUpdateVMParameters, error) {
-	u.os = &os
-	u.osSet = true
-	return u, nil
-}
-
-func (u *updateVMParams) WithSerialConsole(serialConsole bool) (BuildableUpdateVMParameters, error) {
-	u.serialConsole = &serialConsole
-	return u, nil
-}
-
-func (u *updateVMParams) WithSoundcardEnabled(soundcardEnabled bool) (BuildableUpdateVMParameters, error) {
-	u.soundcardEnabled = &soundcardEnabled
 	return u, nil
 }
 
@@ -2083,10 +1524,9 @@ func CreateVMParams() BuildableVMParameters {
 type vmParams struct {
 	lock *sync.Mutex
 
-	name        string
-	comment     string
-	description string
-	cpu         VMCPUParams
+	name    string
+	comment string
+	cpu     VMCPUParams
 
 	hugePages *VMHugePages
 
@@ -2227,7 +1667,6 @@ func (v *vmParams) WithDisks(disks []OptionalVMDiskParameters) (BuildableVMParam
 				i,
 			)
 		}
-		diskIDs[d.DiskID()] = i
 	}
 	v.disks = disks
 	return v, nil
@@ -2363,13 +1802,6 @@ func (v *vmParams) MustWithComment(comment string) BuildableVMParameters {
 	}
 	return builder
 }
-func (v *vmParams) MustWithDescription(description string) BuildableVMParameters {
-	builder, err := v.WithDescription(description)
-	if err != nil {
-		panic(err)
-	}
-	return builder
-}
 
 func (v *vmParams) WithName(name string) (BuildableVMParameters, error) {
 	if err := validateVMName(name); err != nil {
@@ -2384,11 +1816,6 @@ func (v *vmParams) WithComment(comment string) (BuildableVMParameters, error) {
 	return v, nil
 }
 
-func (v *vmParams) WithDescription(description string) (BuildableVMParameters, error) {
-	v.description = description
-	return v, nil
-}
-
 func (v vmParams) Name() string {
 	return v.name
 }
@@ -2397,17 +1824,12 @@ func (v vmParams) Comment() string {
 	return v.comment
 }
 
-func (v vmParams) Description() string {
-	return v.description
-}
-
 type vm struct {
 	client Client
 
 	id               VMID
 	name             string
 	comment          string
-	description      string
 	clusterID        ClusterID
 	templateID       TemplateID
 	status           VMStatus
@@ -2530,6 +1952,60 @@ func (v *vm) Initialization() Initialization {
 	return v.initialization
 }
 
+// withName returns a copy of the VM with the new name. It does not change the original copy to avoid
+// shared state issues.
+func (v *vm) withName(name string) *vm {
+	return &vm{
+		v.client,
+		v.id,
+		name,
+		v.comment,
+		v.clusterID,
+		v.templateID,
+		v.status,
+		v.cpu,
+		v.memory,
+		v.tagIDs,
+		v.hugePages,
+		v.initialization,
+		v.hostID,
+		v.placementPolicy,
+		v.memoryPolicy,
+		v.instanceTypeID,
+		v.vmType,
+		v.os,
+		v.serialConsole,
+		v.soundcardEnabled,
+	}
+}
+
+// withComment returns a copy of the VM with the new comment. It does not change the original copy to avoid
+// shared state issues.
+func (v *vm) withComment(comment string) *vm {
+	return &vm{
+		v.client,
+		v.id,
+		v.name,
+		comment,
+		v.clusterID,
+		v.templateID,
+		v.status,
+		v.cpu,
+		v.memory,
+		v.tagIDs,
+		v.hugePages,
+		v.initialization,
+		v.hostID,
+		v.placementPolicy,
+		v.memoryPolicy,
+		v.instanceTypeID,
+		v.vmType,
+		v.os,
+		v.serialConsole,
+		v.soundcardEnabled,
+	}
+}
+
 func (v *vm) Update(params UpdateVMParameters, retries ...RetryStrategy) (VM, error) {
 	return v.client.UpdateVM(v.id, params, retries...)
 }
@@ -2580,10 +2056,6 @@ func (v *vm) ListNICs(retries ...RetryStrategy) ([]NIC, error) {
 
 func (v *vm) Comment() string {
 	return v.comment
-}
-
-func (v *vm) Description() string {
-	return v.description
 }
 
 func (v *vm) ClusterID() ClusterID {
@@ -2642,7 +2114,6 @@ func convertSDKVM(sdkObject *ovirtsdk.Vm, client Client) (VM, error) {
 		vmIDConverter,
 		vmNameConverter,
 		vmCommentConverter,
-		vmDescriptionConverter,
 		vmClusterConverter,
 		vmStatusConverter,
 		vmTemplateConverter,
@@ -2809,15 +2280,6 @@ func vmCommentConverter(sdkObject *ovirtsdk.Vm, v *vm) error {
 		return newError(EFieldMissing, "comment field missing from VM object")
 	}
 	v.comment = comment
-	return nil
-}
-
-func vmDescriptionConverter(sdkObject *ovirtsdk.Vm, v *vm) error {
-	description, ok := sdkObject.Description()
-	if !ok {
-		return newError(EFieldMissing, "description field missing from VM object")
-	}
-	v.description = description
 	return nil
 }
 
@@ -3026,7 +2488,9 @@ type VMStatusList []VMStatus
 func (l VMStatusList) Copy() VMStatusList {
 	result := make([]VMStatus, len(l))
 	//nolint:gosimple
-	copy(result, l)
+	for i, s := range l {
+		result[i] = s
+	}
 	return result
 }
 
